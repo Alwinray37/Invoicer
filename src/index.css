@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-body;
+    font-feature-settings: 'liga' 1, 'kern' 1;
+  }
+
+  h1, h2, h3, h4, h5 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-ink text-paper font-display font-semibold px-5 py-2.5 rounded-lg 
+           hover:bg-accent hover:text-ink transition-all duration-200 text-sm tracking-wide;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-ink font-display font-medium px-5 py-2.5 rounded-lg 
+           border border-border hover:border-ink transition-all duration-200 text-sm;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-muted font-body text-sm px-3 py-2 rounded-md
+           hover:text-ink hover:bg-border/40 transition-all duration-150;
+  }
+
+  .card {
+    @apply bg-card border border-border rounded-xl p-6;
+  }
+
+  .input {
+    @apply bg-white border border-border rounded-lg px-3 py-2.5 text-sm font-body
+           text-ink placeholder:text-muted focus:outline-none focus:border-ink
+           transition-colors duration-150 w-full;
+  }
+
+  .label {
+    @apply block text-xs font-display font-semibold text-muted uppercase tracking-widest mb-1.5;
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono;
+  }
+
+  .tag-unpaid  { @apply bg-red-100 text-red-700; }
+  .tag-partial { @apply bg-yellow-100 text-yellow-700; }
+  .tag-paid    { @apply bg-green-100 text-green-700; }
+  .tag-void    { @apply bg-zinc-200 text-zinc-700; }
+}
+
+/* Subtle grain texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fadeUp 0.35s ease both;
+}
+.animate-fade-up-delay-1 { animation: fadeUp 0.35s ease 0.05s both; }
+.animate-fade-up-delay-2 { animation: fadeUp 0.35s ease 0.10s both; }
+.animate-fade-up-delay-3 { animation: fadeUp 0.35s ease 0.15s both; }
