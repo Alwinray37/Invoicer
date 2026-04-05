@@ -1,4 +1,4 @@
-# Billable — Invoice & Hours Tracker
+# Invoicer — Invoice & Hours Tracker
 
 A clean, minimal web app for freelancers to track work hours per job and generate PDF invoices.
 

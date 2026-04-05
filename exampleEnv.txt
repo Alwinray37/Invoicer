@@ -1,0 +1,7 @@
+# Copy these values into your local .env file and replace them with your own Supabase credentials.
+
+# Your Supabase project URL
+VITE_SUPABASE_URL=https://your-project.supabase.co
+
+# Your public Supabase anon key
+VITE_SUPABASE_ANON_KEY=your-public-anon-key
