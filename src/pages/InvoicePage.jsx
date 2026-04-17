@@ -27,6 +27,8 @@ export default function InvoicePage() {
   }, [invoiceId])
 
   async function fetchAll() {
+    // This page needs the parent job, the invoice itself, and any payments
+    // already applied so the totals and status badge stay in sync.
     const [{ data: jobData }, { data: inv }, { data: pmts }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', jobId).single(),
       supabase.from('invoices').select('*').eq('id', invoiceId).single(),
@@ -38,6 +40,7 @@ export default function InvoicePage() {
     setPayments(pmts || [])
 
     if (inv) {
+      // Work items are linked by invoice_id once they have been billed.
       const { data: items } = await supabase
         .from('work_items')
         .select('*')
@@ -72,6 +75,7 @@ export default function InvoicePage() {
       }
 
       const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0) + amount
+      // Invoice status is recalculated from payment totals rather than manually chosen.
       const status = totalPaid >= Number(invoice.total_amount) ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid'
 
       const { error: statusError } = await supabase.from('invoices').update({ status }).eq('id', invoiceId)
@@ -92,6 +96,7 @@ export default function InvoicePage() {
   async function handleGeneratePDF() {
     setGenerating(true)
     try {
+      // PDF generation is pure client-side; no extra server call is needed.
       generateInvoicePDF({ invoice, job, workItems, payments })
     } finally {
       setGenerating(false)
@@ -172,6 +177,7 @@ export default function InvoicePage() {
       return
     }
 
+    // Editing an item changes the invoice totals, so both tables must be updated.
     const updatedItems = workItems.map(item =>
       item.id === editingItem.id
         ? { ...item, description: editForm.description, date: editForm.date, hours: parsedHours }
@@ -243,6 +249,8 @@ export default function InvoicePage() {
         : p
     )
     const updatedTotalPaid = updatedPayments.reduce((s, p) => s + Number(p.amount), 0)
+
+    // Status remains derived from money received versus the invoice total.
     const status = updatedTotalPaid >= Number(invoice.total_amount) ? 'paid' : updatedTotalPaid > 0 ? 'partial' : 'unpaid'
 
     const { error: statusError } = await supabase.from('invoices').update({ status }).eq('id', invoiceId)
@@ -270,6 +278,7 @@ export default function InvoicePage() {
 
   return (
     <div className="min-h-screen bg-paper">
+      {/* Top bar keeps the invoice actions visible while scrolling */}
       <nav className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">

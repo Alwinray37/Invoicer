@@ -19,6 +19,8 @@ export default function JobsPage() {
   useEffect(() => { fetchJobs() }, [])
 
   async function fetchJobs() {
+    // Because of Supabase row-level security, this only returns jobs owned by
+    // the signed-in user.
     const { data } = await supabase
       .from('jobs')
       .select('*')
@@ -29,6 +31,9 @@ export default function JobsPage() {
 
   async function createJob(e) {
     e.preventDefault()
+
+    // Jobs store the current user's id so related work items and invoices can
+    // be scoped back to the correct owner in Supabase.
     const { error } = await supabase.from('jobs').insert({
       ...form,
       hourly_rate: parseFloat(form.hourly_rate) || 0,
@@ -70,6 +75,7 @@ export default function JobsPage() {
             <div className="w-5 h-5 border-2 border-ink border-t-transparent rounded-full animate-spin" />
           </div>
         ) : jobs.length === 0 ? (
+          // Empty state shown before the user has created any billable jobs.
           <div className="text-center py-24 animate-fade-up-delay-1">
             <div className="w-12 h-12 bg-accent rounded-xl mx-auto mb-4 flex items-center justify-center">
               <span className="text-xl">📋</span>
@@ -82,6 +88,7 @@ export default function JobsPage() {
             {jobs.map((job, i) => (
               <button
                 key={job.id}
+                // Each card opens that job's dashboard for work logs and invoices.
                 onClick={() => navigate(`/jobs/${job.id}`)}
                 className="card text-left hover:border-ink hover:shadow-sm transition-all duration-200 group animate-fade-up"
                 style={{ animationDelay: `${i * 0.05}s` }}

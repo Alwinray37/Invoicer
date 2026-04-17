@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext'
 export default function AuthPage() {
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
+
+  // One screen handles both login and account creation.
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -15,10 +17,14 @@ export default function AuthPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
+
+    // Switch between auth actions based on the current mode.
     const fn = mode === 'login' ? signIn : signUp
     const { error: err } = await fn(email, password)
     setLoading(false)
     if (err) return setError(err.message)
+
+    // Successful auth always returns the user to the main jobs screen.
     navigate('/')
   }
 

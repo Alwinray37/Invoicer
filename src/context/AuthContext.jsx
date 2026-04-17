@@ -8,11 +8,13 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // On first load, ask Supabase if a session already exists in storage.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
     })
 
+    // Keep React state in sync with Supabase when the user signs in/out.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
@@ -20,6 +22,8 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // These helpers are exposed through context so pages do not need to import
+  // Supabase auth directly.
   const signIn = (email, password) =>
     supabase.auth.signInWithPassword({ email, password })
 
@@ -35,4 +39,5 @@ export function AuthProvider({ children }) {
   )
 }
 
+// Small convenience hook so components can read auth state with one import.
 export const useAuth = () => useContext(AuthContext)

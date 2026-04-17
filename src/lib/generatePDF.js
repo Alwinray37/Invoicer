@@ -3,6 +3,8 @@ import autoTable from 'jspdf-autotable'
 import { format } from 'date-fns'
 
 export function generateInvoicePDF({ invoice, job, workItems, payments }) {
+  // jsPDF works like a drawing canvas: text, shapes, and tables are placed
+  // manually from top to bottom.
   const doc = new jsPDF()
   const pageW = doc.internal.pageSize.getWidth()
   const accent = [200, 240, 74]   // #c8f04a
@@ -96,6 +98,8 @@ export function generateInvoicePDF({ invoice, job, workItems, payments }) {
 
   // ── Payments table ───────────────────────────────────────
   if (payments?.length > 0) {
+    // lastAutoTable.finalY tells us where the previous table ended so sections
+    // can stack without overlapping.
     const afterTable = doc.lastAutoTable.finalY + 12
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
@@ -120,6 +124,7 @@ export function generateInvoicePDF({ invoice, job, workItems, payments }) {
   const totalPaid = (payments || []).reduce((s, p) => s + Number(p.amount), 0)
   const balanceDue = Number(invoice.total_amount) - totalPaid
 
+  // This summary box acts like the visual "callout" for the amount still owed.
   const finalY = doc.lastAutoTable.finalY + 10
   doc.setFillColor(...accent)
   doc.roundedRect(pageW - 80, finalY, 66, 20, 3, 3, 'F')

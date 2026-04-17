@@ -31,6 +31,8 @@ export default function JobDashboard() {
   }, [jobId])
 
   async function fetchAll() {
+    // Load the job, its work log, and its invoices together so the dashboard
+    // can derive all summary stats from one refresh.
     const [{ data: jobData }, { data: items }, { data: invs }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', jobId).single(),
       supabase.from('work_items').select('*').eq('job_id', jobId).order('date', { ascending: false }),
@@ -41,6 +43,8 @@ export default function JobDashboard() {
     setInvoices(invs || [])
 
     if (invs?.length) {
+      // Payments are attached to invoices, so we fetch them after we know the
+      // relevant invoice ids for this job.
       const invoiceIds = invs.map(i => i.id)
       const { data: pmts } = await supabase.from('payments').select('*').in('invoice_id', invoiceIds)
       setPayments(pmts || [])
@@ -49,6 +53,9 @@ export default function JobDashboard() {
 
   async function addWorkItem(e) {
     e.preventDefault()
+
+    // Hours are stored as numbers in the database even though form inputs
+    // arrive as strings.
     await supabase.from('work_items').insert({ ...itemForm, hours: parseFloat(itemForm.hours), job_id: jobId })
     setShowItemModal(false)
     setItemForm({ description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '' })
@@ -109,6 +116,7 @@ export default function JobDashboard() {
       return
     }
     try {
+      // An invoice is built from whichever uninvoiced work items the user selects.
       const items = workItems.filter(w => selectedItems.includes(w.id))
       const totalHours = items.reduce((s, i) => s + Number(i.hours), 0)
       const totalAmount = totalHours * Number(job.hourly_rate)
@@ -127,6 +135,7 @@ export default function JobDashboard() {
         return
       }
 
+      // Mark each linked work item so it no longer appears as available to bill.
       const { error: updateError } = await supabase.from('work_items')
         .update({ invoiced: true, invoice_id: inv.id })
         .in('id', selectedItems)
@@ -147,7 +156,8 @@ export default function JobDashboard() {
     }
   }
 
-  // Stats
+  // These values are derived from database records instead of stored separately,
+  // which keeps the dashboard consistent after any edit.
   const uninvoicedItems = workItems.filter(w => !w.invoiced)
   const totalUninvoicedHours = uninvoicedItems.reduce((s, i) => s + Number(i.hours), 0)
   const totalUninvoicedAmount = totalUninvoicedHours * Number(job?.hourly_rate || 0)

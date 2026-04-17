@@ -11,11 +11,16 @@ import InvoicePage from './pages/InvoicePage'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
+
+  // Wait until Supabase tells us whether a session exists so protected pages
+  // do not briefly render before redirecting.
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-6 h-6 border-2 border-ink border-t-transparent rounded-full animate-spin" />
     </div>
   )
+
+  // Any route wrapped in PrivateRoute requires an authenticated user.
   return user ? children : <Navigate to="/auth" replace />
 }
 
@@ -24,10 +29,15 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public auth screen */}
           <Route path="/auth" element={<AuthPage />} />
+
+          {/* Main app screens, only available after sign-in */}
           <Route path="/" element={<PrivateRoute><JobsPage /></PrivateRoute>} />
           <Route path="/jobs/:jobId" element={<PrivateRoute><JobDashboard /></PrivateRoute>} />
           <Route path="/jobs/:jobId/invoice/:invoiceId" element={<PrivateRoute><InvoicePage /></PrivateRoute>} />
+
+          {/* Unknown URLs fall back to the jobs list */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
@@ -36,5 +46,6 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
+  // StrictMode helps catch side effects during development.
   <React.StrictMode><App /></React.StrictMode>
 )

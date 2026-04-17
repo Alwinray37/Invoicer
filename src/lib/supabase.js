@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
+// Vite exposes env vars on import.meta.env. These must exist at build time.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
@@ -9,6 +10,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
+// This single client instance is shared everywhere in the app.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 /*
