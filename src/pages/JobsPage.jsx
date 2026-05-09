@@ -4,6 +4,10 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
 const CURRENCIES = ['USD','EUR','GBP','CAD','AUD','JPY']
+const BILLING_TYPES = [
+  { value: 'hourly', label: 'Hourly' },
+  { value: 'flat', label: 'Flat fee' },
+]
 
 export default function JobsPage() {
   const { user, signOut } = useAuth()
@@ -13,10 +17,32 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({
     name: '', client_name: '', client_email: '',
-    client_address: '', hourly_rate: '', currency: 'USD'
+    client_address: '', billing_type: 'hourly', hourly_rate: '', currency: 'USD'
   })
 
+  const emptyForm = {
+    name: '',
+    client_name: '',
+    client_email: '',
+    client_address: '',
+    billing_type: 'hourly',
+    hourly_rate: '',
+    currency: 'USD',
+  }
+
   useEffect(() => { fetchJobs() }, [])
+
+  function getBillingType(job) {
+    return job.billing_type === 'flat' ? 'flat' : 'hourly'
+  }
+
+  function getRateLabel(job) {
+    const price = Number(job.hourly_rate || 0)
+    if (price <= 0) return 'No rate set'
+    return getBillingType(job) === 'flat'
+      ? `${job.currency} ${price.toFixed(2)} flat`
+      : `${job.currency} ${price.toFixed(2)}/hr`
+  }
 
   async function fetchJobs() {
     // Because of Supabase row-level security, this only returns jobs owned by
@@ -39,7 +65,7 @@ export default function JobsPage() {
       hourly_rate: parseFloat(form.hourly_rate) || 0,
       user_id: user.id
     })
-    if (!error) { setShowModal(false); setForm({ name:'',client_name:'',client_email:'',client_address:'',hourly_rate:'',currency:'USD' }); fetchJobs() }
+    if (!error) { setShowModal(false); setForm(emptyForm); fetchJobs() }
   }
 
   return (
@@ -81,7 +107,7 @@ export default function JobsPage() {
               <span className="text-xl">📋</span>
             </div>
             <h2 className="font-display font-semibold text-lg mb-1">No jobs yet</h2>
-            <p className="text-muted text-sm">Create your first job to start tracking hours.</p>
+            <p className="text-muted text-sm">Create your first job to start tracking billable work.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -103,7 +129,7 @@ export default function JobsPage() {
                 {job.client_name && <p className="text-sm text-muted truncate">{job.client_name}</p>}
                 <div className="mt-3 pt-3 border-t border-border">
                   <span className="text-xs font-mono text-muted">
-                    {job.hourly_rate > 0 ? `${job.currency} ${Number(job.hourly_rate).toFixed(0)}/hr` : 'No rate set'}
+                    {getRateLabel(job)}
                   </span>
                 </div>
               </button>
@@ -123,9 +149,15 @@ export default function JobsPage() {
                 <input className="input" placeholder="Website Redesign" required
                   value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="label">Hourly Rate</label>
+                  <label className="label">Billing Type</label>
+                  <select className="input" value={form.billing_type} onChange={e => setForm({...form, billing_type: e.target.value})}>
+                    {BILLING_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{form.billing_type === 'flat' ? 'Flat Price' : 'Hourly Rate'}</label>
                   <input className="input" type="number" min="0" step="0.01" placeholder="0.00"
                     value={form.hourly_rate} onChange={e => setForm({...form, hourly_rate: e.target.value})} />
                 </div>

@@ -17,7 +17,8 @@ export default function InvoicePage() {
   const [voiding, setVoiding] = useState(false)
 
   const [editingItem, setEditingItem] = useState(null)
-  const [editForm, setEditForm] = useState({ description: '', date: '', hours: '' })
+  const emptyEditForm = { description: '', date: '', hours: '', amount: '' }
+  const [editForm, setEditForm] = useState(emptyEditForm)
 
   const [editingPayment, setEditingPayment] = useState(null)
   const [paymentEditForm, setPaymentEditForm] = useState({ amount: '', date: '', note: '' })
@@ -25,6 +26,53 @@ export default function InvoicePage() {
   useEffect(() => {
     fetchAll()
   }, [invoiceId])
+
+  function getBillingType(currentJob = job) {
+    return currentJob?.billing_type === 'flat' ? 'flat' : 'hourly'
+  }
+
+  function getUnitLabel(currentJob = job) {
+    return getBillingType(currentJob) === 'flat' ? 'Amount' : 'Hours'
+  }
+
+  function getItemAmount(item, currentJob = job) {
+    if (item?.amount != null) return Number(item.amount)
+
+    const value = Number(item?.hours || 0)
+    return getBillingType(currentJob) === 'flat'
+      ? value
+      : value * Number(currentJob?.hourly_rate || 0)
+  }
+
+  function getInvoiceTotals(items, currentJob = job) {
+    const totalUnits = items.reduce((sum, item) => sum + Number(item.hours), 0)
+
+    if (getBillingType(currentJob) === 'flat') {
+      return {
+        totalHours: null,
+        totalAmount: items.reduce((sum, item) => sum + getItemAmount(item, currentJob), 0),
+      }
+    }
+
+    return {
+      totalHours: totalUnits,
+      totalAmount: items.reduce((sum, item) => sum + getItemAmount(item, currentJob), 0),
+    }
+  }
+
+  function getDerivedAmount(hoursValue, currentJob = job) {
+    const parsedHours = parseFloat(hoursValue)
+    if (getBillingType(currentJob) !== 'hourly' || Number.isNaN(parsedHours) || parsedHours <= 0) {
+      return null
+    }
+
+    return parsedHours * Number(currentJob?.hourly_rate || 0)
+  }
+
+  function getDisplayedAmount(formState, currentJob = job) {
+    const derivedAmount = getDerivedAmount(formState.hours, currentJob)
+    return derivedAmount != null ? derivedAmount.toFixed(2) : formState.amount
+  }
 
   async function fetchAll() {
     // This page needs the parent job, the invoice itself, and any payments
@@ -144,13 +192,14 @@ export default function InvoicePage() {
     setEditForm({
       description: item.description || '',
       date: item.date || '',
-      hours: String(item.hours ?? ''),
+      hours: Number(item.hours || 0) > 0 ? String(item.hours) : '',
+      amount: String(item.amount ?? getItemAmount(item)),
     })
   }
 
   function closeEditModal() {
     setEditingItem(null)
-    setEditForm({ description: '', date: '', hours: '' })
+    setEditForm(emptyEditForm)
   }
 
   async function updateInvoiceItem(e) {
@@ -158,8 +207,17 @@ export default function InvoicePage() {
     if (!editingItem) return
 
     const parsedHours = parseFloat(editForm.hours)
-    if (!parsedHours || parsedHours <= 0) {
+    const hours = !Number.isNaN(parsedHours) && parsedHours > 0 ? parsedHours : 0
+    const derivedAmount = getDerivedAmount(editForm.hours, job)
+    const parsedAmount = parseFloat(derivedAmount != null ? String(derivedAmount) : editForm.amount)
+
+    if (editForm.hours && (Number.isNaN(parsedHours) || parsedHours < 0)) {
       alert('Please enter a valid number of hours')
+      return
+    }
+
+    if (!parsedAmount || parsedAmount <= 0) {
+      alert('Please enter a valid amount')
       return
     }
 
@@ -168,7 +226,8 @@ export default function InvoicePage() {
       .update({
         description: editForm.description,
         date: editForm.date,
-        hours: parsedHours,
+        hours,
+        amount: parsedAmount,
       })
       .eq('id', editingItem.id)
 
@@ -180,11 +239,10 @@ export default function InvoicePage() {
     // Editing an item changes the invoice totals, so both tables must be updated.
     const updatedItems = workItems.map(item =>
       item.id === editingItem.id
-        ? { ...item, description: editForm.description, date: editForm.date, hours: parsedHours }
+        ? { ...item, description: editForm.description, date: editForm.date, hours, amount: parsedAmount }
         : item
     )
-    const newTotalHours = updatedItems.reduce((s, i) => s + Number(i.hours), 0)
-    const newTotalAmount = newTotalHours * Number(job.hourly_rate)
+    const { totalHours: newTotalHours, totalAmount: newTotalAmount } = getInvoiceTotals(updatedItems)
 
     const { error: invoiceError } = await supabase
       .from('invoices')
@@ -348,14 +406,22 @@ export default function InvoicePage() {
                   <div key={item.id} className="flex items-center gap-3 py-3 group">
                     <span className="text-xs font-mono text-muted w-20 shrink-0">{format(new Date(item.date + 'T00:00:00'), 'MMM d')}</span>
                     <span className="text-sm flex-1">{item.description}</span>
-                    <span className="text-xs font-mono text-muted">{Number(item.hours).toFixed(2)}h</span>
-                    <span className="text-sm font-mono font-medium w-24 text-right">{job.currency} {(item.hours * job.hourly_rate).toFixed(2)}</span>
+                    <span className="text-xs font-mono text-muted">
+                      {Number(item.hours || 0) > 0
+                        ? `${Number(item.hours).toFixed(2)}h`
+                        : 'Manual'}
+                    </span>
+                    <span className="text-sm font-mono font-medium w-24 text-right">{job.currency} {getItemAmount(item).toFixed(2)}</span>
                     <button onClick={() => startEditItem(item)} className="opacity-0 group-hover:opacity-100 text-muted hover:text-ink text-xs transition-all ml-2">Edit</button>
                   </div>
                 ))}
               </div>
               <div className="mt-3 pt-3 border-t border-border flex justify-between">
-                <span className="text-xs font-mono text-muted">{invoice.total_hours?.toFixed(2)} hours @ {job.currency} {job.hourly_rate}/hr</span>
+                <span className="text-xs font-mono text-muted">
+                  {getBillingType() === 'flat'
+                    ? `${workItems.length} flat-fee item${workItems.length === 1 ? '' : 's'}`
+                    : `${Number(invoice.total_hours || 0).toFixed(2)} hours @ ${job.currency} ${job.hourly_rate}/hr`}
+                </span>
                 <span className="font-mono font-bold text-sm">{job.currency} {Number(invoice.total_amount).toFixed(2)}</span>
               </div>
             </div>
@@ -469,13 +535,28 @@ export default function InvoicePage() {
                   <input className="input" type="date" required value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} />
                 </div>
                 <div>
-                  <label className="label">Hours *</label>
-                  <input className="input" type="number" min="0" step="0.25" required value={editForm.hours} onChange={e => setEditForm({ ...editForm, hours: e.target.value })} />
+                  <label className="label">Hours</label>
+                  <input className="input" type="number" min="0" step="0.25" value={editForm.hours} onChange={e => setEditForm({ ...editForm, hours: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Amount *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    readOnly={getDerivedAmount(editForm.hours) != null}
+                    value={getDisplayedAmount(editForm)}
+                    onChange={e => setEditForm({ ...editForm, amount: e.target.value })}
+                  />
                 </div>
               </div>
-              {editForm.hours && (
+              {(editForm.hours || editForm.amount) && (
                 <p className="text-xs font-mono text-muted bg-border/30 rounded-lg px-3 py-2">
-                  = {job.currency} {(parseFloat(editForm.hours || 0) * job.hourly_rate).toFixed(2)} at {job.currency} {job.hourly_rate}/hr
+                  {getDerivedAmount(editForm.hours) != null
+                    ? `Auto-calculated from hours: ${job.currency} ${getDisplayedAmount(editForm)}`
+                    : `Manual amount: ${job.currency} ${Number(editForm.amount || 0).toFixed(2)}`}
                 </p>
               )}
               <div className="flex gap-2 pt-1">
