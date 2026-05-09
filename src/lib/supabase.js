@@ -27,22 +27,31 @@ create table jobs (
   client_name text,
   client_email text,
   client_address text,
+  billing_type text default 'hourly',
   hourly_rate numeric(10,2) default 0,
   currency text default 'USD',
   created_at timestamptz default now()
 );
 
--- Work items (logged hours)
+-- Existing projects can add flat-fee support with:
+-- alter table jobs add column if not exists billing_type text default 'hourly';
+
+-- Work items
 create table work_items (
   id uuid default gen_random_uuid() primary key,
   job_id uuid references jobs(id) on delete cascade not null,
   description text not null,
   date date not null,
-  hours numeric(5,2) not null,
+  hours numeric(5,2) default 0,
+  amount numeric(10,2) default 0,
   invoiced boolean default false,
   invoice_id uuid,
   created_at timestamptz default now()
 );
+
+-- Existing projects can add work-item amounts with:
+-- alter table work_items add column if not exists amount numeric(10,2) default 0;
+-- alter table work_items alter column hours set default 0;
 
 -- Invoices
 create table invoices (
