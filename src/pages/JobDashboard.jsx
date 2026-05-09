@@ -3,9 +3,31 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 
+function DescriptionTextarea({ value, onChange, placeholder, required, className }) {
+  const [focused, setFocused] = useState(false)
+  const expanded = focused && value.includes('\n')
+
+  return (
+    <div className="relative">
+      <div className={`${className} invisible pointer-events-none select-none`} aria-hidden="true">&nbsp;</div>
+      <textarea
+        placeholder={placeholder}
+        required={required}
+        value={value}
+        onChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className={`${className} absolute top-0 left-0 resize-none ${expanded ? 'z-50 shadow-lg' : 'overflow-hidden'}`}
+        style={expanded ? { height: '8rem' } : { height: '100%' }}
+      />
+    </div>
+  )
+}
+
 export default function JobDashboard() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const emptyJobForm = { billing_type: 'hourly', hourly_rate: '' }
   const [job, setJob] = useState(null)
   const [workItems, setWorkItems] = useState([])
   const [invoices, setInvoices] = useState([])
@@ -13,10 +35,13 @@ export default function JobDashboard() {
   const [tab, setTab] = useState('log')
   const [showItemModal, setShowItemModal] = useState(false)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [showJobSettingsModal, setShowJobSettingsModal] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
   const [selectedItems, setSelectedItems] = useState([])
-  const [itemForm, setItemForm] = useState({ description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '' })
-  const [editForm, setEditForm] = useState({ description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '' })
+  const [jobForm, setJobForm] = useState(emptyJobForm)
+  const emptyItemForm = { description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '', amount: '' }
+  const [itemForm, setItemForm] = useState(emptyItemForm)
+  const [editForm, setEditForm] = useState(emptyItemForm)
   const [invoiceForm, setInvoiceForm] = useState({
     invoice_number: `INV-${Date.now().toString().slice(-6)}`,
     issued_date: format(new Date(), 'yyyy-MM-dd'),
@@ -29,6 +54,71 @@ export default function JobDashboard() {
   useEffect(() => {
     fetchAll()
   }, [jobId])
+
+  function getBillingType(currentJob = job) {
+    return currentJob?.billing_type === 'flat' ? 'flat' : 'hourly'
+  }
+
+  function getUnitLabel(currentJob = job) {
+    return getBillingType(currentJob) === 'flat' ? 'Amount' : 'Hours'
+  }
+
+  function getEntryVerb(currentJob = job) {
+    return getBillingType(currentJob) === 'flat' ? 'Add Item' : 'Log Hours'
+  }
+
+  function getItemAmount(item, currentJob = job) {
+    if (item?.amount != null) return Number(item.amount)
+
+    const value = Number(item?.hours || 0)
+    return getBillingType(currentJob) === 'flat'
+      ? value
+      : value * Number(currentJob?.hourly_rate || 0)
+  }
+
+  function getInvoiceTotals(items, currentJob = job) {
+    const billingType = getBillingType(currentJob)
+    const totalUnits = items.reduce((sum, item) => sum + Number(item.hours), 0)
+
+    if (billingType === 'flat') {
+      return {
+        totalHours: null,
+        totalAmount: items.reduce((sum, item) => sum + getItemAmount(item, currentJob), 0),
+      }
+    }
+
+    return {
+      totalHours: totalUnits,
+      totalAmount: items.reduce((sum, item) => sum + getItemAmount(item, currentJob), 0),
+    }
+  }
+
+  function getDerivedAmount(hoursValue, currentJob = job) {
+    const parsedHours = parseFloat(hoursValue)
+    if (getBillingType(currentJob) !== 'hourly' || Number.isNaN(parsedHours) || parsedHours <= 0) {
+      return null
+    }
+
+    return parsedHours * Number(currentJob?.hourly_rate || 0)
+  }
+
+  function getDisplayedAmount(formState, currentJob = job) {
+    const derivedAmount = getDerivedAmount(formState.hours, currentJob)
+    return derivedAmount != null ? derivedAmount.toFixed(2) : formState.amount
+  }
+
+  function openJobSettings() {
+    setJobForm({
+      billing_type: getBillingType(job),
+      hourly_rate: String(job?.hourly_rate ?? ''),
+    })
+    setShowJobSettingsModal(true)
+  }
+
+  function closeJobSettings() {
+    setShowJobSettingsModal(false)
+    setJobForm(emptyJobForm)
+  }
 
   async function fetchAll() {
     // Load the job, its work log, and its invoices together so the dashboard
@@ -54,11 +144,36 @@ export default function JobDashboard() {
   async function addWorkItem(e) {
     e.preventDefault()
 
-    // Hours are stored as numbers in the database even though form inputs
-    // arrive as strings.
-    await supabase.from('work_items').insert({ ...itemForm, hours: parseFloat(itemForm.hours), job_id: jobId })
+    const parsedHours = parseFloat(itemForm.hours)
+    const hours = !Number.isNaN(parsedHours) && parsedHours > 0 ? parsedHours : 0
+    const derivedAmount = getDerivedAmount(itemForm.hours, job)
+    const parsedAmount = derivedAmount != null ? derivedAmount : parseFloat(itemForm.amount)
+
+    if (itemForm.hours && (Number.isNaN(parsedHours) || parsedHours < 0)) {
+      alert('Please enter a valid number of hours')
+      return
+    }
+
+    if (derivedAmount == null && (Number.isNaN(parsedAmount) || parsedAmount <= 0)) {
+      alert('Please enter a valid amount')
+      return
+    }
+
+    const { error } = await supabase.from('work_items').insert({
+      description: itemForm.description,
+      date: itemForm.date,
+      hours,
+      amount: parsedAmount ?? 0,
+      job_id: jobId,
+    })
+
+    if (error) {
+      alert('Error saving entry: ' + error.message)
+      return
+    }
+
     setShowItemModal(false)
-    setItemForm({ description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '' })
+    setItemForm(emptyItemForm)
     fetchAll()
   }
 
@@ -67,18 +182,45 @@ export default function JobDashboard() {
     fetchAll()
   }
 
+  async function updateJobSettings(e) {
+    e.preventDefault()
+
+    const parsedRate = parseFloat(jobForm.hourly_rate)
+    if (jobForm.hourly_rate && (Number.isNaN(parsedRate) || parsedRate < 0)) {
+      alert('Please enter a valid rate')
+      return
+    }
+
+    const { error } = await supabase
+      .from('jobs')
+      .update({
+        billing_type: jobForm.billing_type,
+        hourly_rate: parsedRate || 0,
+      })
+      .eq('id', jobId)
+
+    if (error) {
+      alert('Error updating job settings: ' + error.message)
+      return
+    }
+
+    closeJobSettings()
+    fetchAll()
+  }
+
   function startEditWorkItem(item) {
     setEditingItem(item)
     setEditForm({
       description: item.description || '',
       date: item.date || format(new Date(), 'yyyy-MM-dd'),
-      hours: String(item.hours ?? '')
+      hours: Number(item.hours || 0) > 0 ? String(item.hours) : '',
+      amount: String(item.amount ?? getItemAmount(item))
     })
   }
 
   function closeEditModal() {
     setEditingItem(null)
-    setEditForm({ description: '', date: format(new Date(), 'yyyy-MM-dd'), hours: '' })
+    setEditForm(emptyItemForm)
   }
 
   async function updateWorkItem(e) {
@@ -86,8 +228,17 @@ export default function JobDashboard() {
     if (!editingItem) return
 
     const parsedHours = parseFloat(editForm.hours)
-    if (!parsedHours || parsedHours <= 0) {
+    const hours = !Number.isNaN(parsedHours) && parsedHours > 0 ? parsedHours : 0
+    const derivedAmount = getDerivedAmount(editForm.hours, job)
+    const parsedAmount = parseFloat(derivedAmount != null ? String(derivedAmount) : editForm.amount)
+
+    if (editForm.hours && (Number.isNaN(parsedHours) || parsedHours < 0)) {
       alert('Please enter a valid number of hours')
+      return
+    }
+
+    if (!parsedAmount || parsedAmount <= 0) {
+      alert('Please enter a valid amount')
       return
     }
 
@@ -96,7 +247,8 @@ export default function JobDashboard() {
       .update({
         description: editForm.description,
         date: editForm.date,
-        hours: parsedHours,
+        hours,
+        amount: parsedAmount,
       })
       .eq('id', editingItem.id)
 
@@ -118,8 +270,7 @@ export default function JobDashboard() {
     try {
       // An invoice is built from whichever uninvoiced work items the user selects.
       const items = workItems.filter(w => selectedItems.includes(w.id))
-      const totalHours = items.reduce((s, i) => s + Number(i.hours), 0)
-      const totalAmount = totalHours * Number(job.hourly_rate)
+      const { totalHours, totalAmount } = getInvoiceTotals(items)
 
       const { data: inv, error: invoiceError } = await supabase.from('invoices').insert({
         ...invoiceForm,
@@ -160,7 +311,7 @@ export default function JobDashboard() {
   // which keeps the dashboard consistent after any edit.
   const uninvoicedItems = workItems.filter(w => !w.invoiced)
   const totalUninvoicedHours = uninvoicedItems.reduce((s, i) => s + Number(i.hours), 0)
-  const totalUninvoicedAmount = totalUninvoicedHours * Number(job?.hourly_rate || 0)
+  const totalUninvoicedAmount = uninvoicedItems.reduce((sum, item) => sum + getItemAmount(item), 0)
   const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0)
   const totalInvoiced = invoices.reduce((s, i) => s + Number(i.total_amount), 0)
 
@@ -186,9 +337,17 @@ export default function JobDashboard() {
         <div className="animate-fade-up mb-8">
           <p className="text-xs font-mono text-muted uppercase tracking-widest mb-1">{job.client_name || 'No client'}</p>
           <div className="flex items-end justify-between">
-            <h1 className="font-display text-3xl font-bold">{job.name}</h1>
+            <div>
+              <h1 className="font-display text-3xl font-bold">{job.name}</h1>
+              <p className="text-xs font-mono text-muted mt-1">
+                {getBillingType() === 'flat'
+                  ? `Flat fee: ${job.currency} ${Number(job.hourly_rate || 0).toFixed(2)}`
+                  : `Hourly: ${job.currency} ${Number(job.hourly_rate || 0).toFixed(2)}/hr`}
+              </p>
+            </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowItemModal(true)} className="btn-secondary text-sm md:hidden">+ Log Hours</button>
+              <button onClick={openJobSettings} className="btn-secondary text-sm">Edit Job</button>
+              <button onClick={() => setShowItemModal(true)} className="btn-secondary text-sm md:hidden">+ {getEntryVerb()}</button>
               {uninvoicedItems.length > 0 && (
                 <button onClick={() => { setSelectedItems(uninvoicedItems.map(i => i.id)); setShowInvoiceModal(true) }} className="btn-primary text-sm">
                   Create Invoice
@@ -201,7 +360,7 @@ export default function JobDashboard() {
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8 animate-fade-up-delay-1">
           {[
-            { label: 'Uninvoiced Hours', value: `${totalUninvoicedHours.toFixed(1)} hrs` },
+            { label: getBillingType() === 'flat' ? 'Uninvoiced Items' : 'Uninvoiced Hours', value: getBillingType() === 'flat' ? `${uninvoicedItems.length} items` : `${totalUninvoicedHours.toFixed(1)} hrs` },
             { label: 'Unbilled Amount', value: `${job.currency} ${totalUninvoicedAmount.toFixed(2)}` },
             { label: 'Total Invoiced', value: `${job.currency} ${totalInvoiced.toFixed(2)}` },
             { label: 'Total Received', value: `${job.currency} ${totalPaid.toFixed(2)}` },
@@ -244,30 +403,42 @@ export default function JobDashboard() {
                     className="input w-full"
                   />
                 </div>
-                <div className="col-span-6">
+                <div className="col-span-4">
                   <label className="label text-xs">Description *</label>
-                  <input 
+                  <DescriptionTextarea
                     placeholder="What did you work on?"
-                    required 
-                    value={itemForm.description} 
+                    required
+                    value={itemForm.description}
                     onChange={e => setItemForm({ ...itemForm, description: e.target.value })}
                     className="input w-full"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="label text-xs">Hours *</label>
+                  <label className="label text-xs">Hours</label>
                   <input 
                     type="number" 
                     min="0" 
                     step="0.25" 
                     placeholder="0.00"
-                    required 
                     value={itemForm.hours} 
                     onChange={e => setItemForm({ ...itemForm, hours: e.target.value })}
                     className="input w-full"
                   />
                 </div>
-                <button type="submit" className="btn-primary col-span-2">Log Hours</button>
+                <div className="col-span-2">
+                  <label className="label text-xs">Amount *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    readOnly={getDerivedAmount(itemForm.hours) != null}
+                    value={getDisplayedAmount(itemForm)}
+                    onChange={e => setItemForm({ ...itemForm, amount: e.target.value })}
+                    className="input w-full"
+                  />
+                </div>
+                <button type="submit" className="btn-primary col-span-2">{getEntryVerb()}</button>
               </div>
             </form>
 
@@ -276,20 +447,24 @@ export default function JobDashboard() {
               {workItems.length === 0 ? (
                 <div className="text-center py-16 text-muted">
                   <p className="font-display text-base mb-1">No work logged yet</p>
-                  <p className="text-sm">Click "Log Hours" to add your first entry.</p>
+                  <p className="text-sm">Click "{getEntryVerb()}" to add your first entry.</p>
                 </div>
               ) : workItems.map(item => (
-                <div key={item.id} className="card py-3.5 px-4 flex items-center gap-4 group">
-                  <div className="text-xs font-mono text-muted w-24 shrink-0">
+                <div key={item.id} className="card py-3.5 px-4 flex items-start gap-4 group">
+                  <div className="text-xs font-mono text-muted w-24 shrink-0 pt-0.5">
                     {format(new Date(item.date + 'T00:00:00'), 'MMM d, yyyy')}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-body truncate">{item.description}</p>
+                    <p className="text-sm font-body whitespace-pre-wrap break-words">{item.description}</p>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="font-mono text-sm font-medium">{Number(item.hours).toFixed(2)} hrs</span>
-                    <span className="font-mono text-xs text-muted">
-                      {job.currency} {(item.hours * job.hourly_rate).toFixed(2)}
+                  <div className="flex items-start gap-3 shrink-0">
+                    {Number(item.hours || 0) > 0 && (
+                      <span className="font-mono text-sm text-muted">
+                        {Number(item.hours).toFixed(2)} hrs
+                      </span>
+                    )}
+                    <span className="font-mono text-sm font-medium">
+                      {job.currency} {getItemAmount(item).toFixed(2)}
                     </span>
                     {item.invoiced ? (
                       <span className="tag tag-paid">invoiced</span>
@@ -318,7 +493,7 @@ export default function JobDashboard() {
             {invoices.length === 0 ? (
               <div className="text-center py-16 text-muted">
                 <p className="font-display text-base mb-1">No invoices yet</p>
-                <p className="text-sm">Log some hours and create your first invoice.</p>
+                <p className="text-sm">{getBillingType() === 'flat' ? 'Add some items and create your first invoice.' : 'Log some hours and create your first invoice.'}</p>
               </div>
             ) : invoices.map(inv => {
               const invPayments = payments.filter(p => p.invoice_id === inv.id)
@@ -336,7 +511,8 @@ export default function JobDashboard() {
                       <span className={`tag tag-${inv.status}`}>{inv.status}</span>
                     </div>
                     <p className="text-xs text-muted font-mono">
-                      Issued {format(new Date(inv.issued_date), 'MMM d, yyyy')} · {inv.total_hours?.toFixed(1)} hrs
+                      Issued {format(new Date(inv.issued_date), 'MMM d, yyyy')}
+                      {getBillingType() === 'hourly' && inv.total_hours != null && ` · ${Number(inv.total_hours).toFixed(1)} hrs`}
                     </p>
                   </div>
                   <div className="text-right">
@@ -352,15 +528,62 @@ export default function JobDashboard() {
         )}
       </main>
 
-      {/* Log Hours Modal */}
+      {/* Log Entry Modal */}
+      {showJobSettingsModal && (
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 animate-fade-up shadow-xl">
+            <h2 className="font-display font-bold text-lg mb-5">Edit Job Settings</h2>
+            <form onSubmit={updateJobSettings} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Billing Type</label>
+                  <select
+                    className="input"
+                    value={jobForm.billing_type}
+                    onChange={e => setJobForm({ ...jobForm, billing_type: e.target.value })}
+                  >
+                    <option value="hourly">Hourly</option>
+                    <option value="flat">Flat fee</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{jobForm.billing_type === 'flat' ? 'Flat Price' : 'Hourly Rate'}</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={jobForm.hourly_rate}
+                    onChange={e => setJobForm({ ...jobForm, hourly_rate: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {(workItems.length > 0 || invoices.length > 0) && (
+                <p className="text-xs font-mono text-muted bg-border/30 rounded-lg px-3 py-2">
+                  Changing the billing type will reinterpret existing entries using the new pricing model for future totals and invoices.
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={closeJobSettings} className="btn-secondary flex-1">Cancel</button>
+                <button type="submit" className="btn-primary flex-1">Save Settings</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Log Entry Modal */}
       {showItemModal && (
         <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-2xl w-full max-w-sm p-6 animate-fade-up shadow-xl">
-            <h2 className="font-display font-bold text-lg mb-5">Log Work Hours</h2>
+            <h2 className="font-display font-bold text-lg mb-5">{getBillingType() === 'flat' ? 'Add Flat-Fee Item' : 'Log Work Hours'}</h2>
             <form onSubmit={addWorkItem} className="space-y-4">
               <div>
                 <label className="label">Description *</label>
-                <input className="input" placeholder="What did you work on?" required
+                <DescriptionTextarea className="input w-full" placeholder="What did you work on?" required
                   value={itemForm.description} onChange={e => setItemForm({...itemForm, description: e.target.value})} />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -370,14 +593,29 @@ export default function JobDashboard() {
                     value={itemForm.date} onChange={e => setItemForm({...itemForm, date: e.target.value})} />
                 </div>
                 <div>
-                  <label className="label">Hours *</label>
-                  <input className="input" type="number" min="0" step="0.25" placeholder="0.00" required
+                  <label className="label">Hours</label>
+                  <input className="input" type="number" min="0" step="0.25" placeholder="0.00"
                     value={itemForm.hours} onChange={e => setItemForm({...itemForm, hours: e.target.value})} />
                 </div>
+                <div>
+                  <label className="label">Amount *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    readOnly={getDerivedAmount(itemForm.hours) != null}
+                    value={getDisplayedAmount(itemForm)}
+                    onChange={e => setItemForm({ ...itemForm, amount: e.target.value })}
+                  />
+                </div>
               </div>
-              {itemForm.hours && (
+              {(itemForm.hours || itemForm.amount) && (
                 <p className="text-xs font-mono text-muted bg-border/30 rounded-lg px-3 py-2">
-                  = {job.currency} {(parseFloat(itemForm.hours || 0) * job.hourly_rate).toFixed(2)} at {job.currency} {job.hourly_rate}/hr
+                  {getDerivedAmount(itemForm.hours) != null
+                    ? `Auto-calculated from hours: ${job.currency} ${getDisplayedAmount(itemForm)}`
+                    : `Manual amount: ${job.currency} ${Number(itemForm.amount || 0).toFixed(2)}`}
                 </p>
               )}
               <div className="flex gap-2 pt-1">
@@ -397,8 +635,8 @@ export default function JobDashboard() {
             <form onSubmit={updateWorkItem} className="space-y-4">
               <div>
                 <label className="label">Description *</label>
-                <input
-                  className="input"
+                <DescriptionTextarea
+                  className="input w-full"
                   required
                   value={editForm.description}
                   onChange={e => setEditForm({ ...editForm, description: e.target.value })}
@@ -416,22 +654,35 @@ export default function JobDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="label">Hours *</label>
+                  <label className="label">Hours</label>
                   <input
                     className="input"
                     type="number"
                     min="0"
                     step="0.25"
-                    required
                     value={editForm.hours}
                     onChange={e => setEditForm({ ...editForm, hours: e.target.value })}
                   />
                 </div>
+                <div>
+                  <label className="label">Amount *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    readOnly={getDerivedAmount(editForm.hours) != null}
+                    value={getDisplayedAmount(editForm)}
+                    onChange={e => setEditForm({ ...editForm, amount: e.target.value })}
+                  />
+                </div>
               </div>
 
-              {editForm.hours && (
+              {(editForm.hours || editForm.amount) && (
                 <p className="text-xs font-mono text-muted bg-border/30 rounded-lg px-3 py-2">
-                  = {job.currency} {(parseFloat(editForm.hours || 0) * job.hourly_rate).toFixed(2)} at {job.currency} {job.hourly_rate}/hr
+                  {getDerivedAmount(editForm.hours) != null
+                    ? `Auto-calculated from hours: ${job.currency} ${getDisplayedAmount(editForm)}`
+                    : `Manual amount: ${job.currency} ${Number(editForm.amount || 0).toFixed(2)}`}
                 </p>
               )}
 
@@ -499,7 +750,11 @@ export default function JobDashboard() {
                       />
                       <span className="text-xs font-mono text-muted w-20 shrink-0">{format(new Date(item.date + 'T00:00:00'), 'MMM d')}</span>
                       <span className="text-sm flex-1 truncate">{item.description}</span>
-                      <span className="text-xs font-mono text-muted">{item.hours}h</span>
+                      <span className="text-xs font-mono text-muted">
+                        {Number(item.hours || 0) > 0
+                          ? `${Number(item.hours).toFixed(2)}h`
+                          : `${job.currency} ${getItemAmount(item).toFixed(2)}`}
+                      </span>
                     </label>
                   ))}
                 </div>

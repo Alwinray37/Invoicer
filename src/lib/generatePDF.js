@@ -10,6 +10,7 @@ export function generateInvoicePDF({ invoice, job, workItems, payments }) {
   const accent = [200, 240, 74]   // #c8f04a
   const ink    = [14, 14, 14]
   const muted  = [138, 138, 122]
+  const billingType = job?.billing_type === 'flat' ? 'flat' : 'hourly'
 
   // ── Header bar ──────────────────────────────────────────
   doc.setFillColor(...accent)
@@ -67,32 +68,54 @@ export function generateInvoicePDF({ invoice, job, workItems, payments }) {
   // ── Work items table ─────────────────────────────────────
   y = 95
 
+  const tableHead = billingType === 'flat'
+    ? [['Date', 'Description', 'Amount']]
+    : [['Date', 'Description', 'Hours', `Rate (${job.currency || 'USD'})`, 'Amount']]
+
+  const tableBody = billingType === 'flat'
+    ? workItems.map(item => [
+        format(new Date(item.date), 'MMM d, yyyy'),
+        item.description,
+        `${job.currency || 'USD'} ${Number(item.amount ?? item.hours).toFixed(2)}`,
+      ])
+    : workItems.map(item => [
+        format(new Date(item.date), 'MMM d, yyyy'),
+        item.description,
+        Number(item.hours || 0) > 0 ? Number(item.hours).toFixed(2) : '—',
+        Number(item.hours || 0) > 0 ? `${Number(job.hourly_rate).toFixed(2)}` : '—',
+        `${Number(item.amount ?? (Number(item.hours) * Number(job.hourly_rate))).toFixed(2)}`,
+      ])
+
+  const tableFoot = billingType === 'flat'
+    ? [['', 'Total', `${job.currency || 'USD'} ${Number(invoice.total_amount).toFixed(2)}`]]
+    : [[
+        '',
+        '',
+        `${invoice.total_hours?.toFixed(2)} hrs`,
+        'Total',
+        `${job.currency || 'USD'} ${Number(invoice.total_amount).toFixed(2)}`
+      ]]
+
   autoTable(doc, {
     startY: y,
-    head: [['Date', 'Description', 'Hours', `Rate (${job.currency || 'USD'})`, 'Amount']],
-    body: workItems.map(item => [
-      format(new Date(item.date), 'MMM d, yyyy'),
-      item.description,
-      item.hours.toFixed(2),
-      `${Number(job.hourly_rate).toFixed(2)}`,
-      `${(item.hours * job.hourly_rate).toFixed(2)}`,
-    ]),
-    foot: [[
-      '', '', 
-      `${invoice.total_hours?.toFixed(2)} hrs`,
-      'Total',
-      `${job.currency || 'USD'} ${Number(invoice.total_amount).toFixed(2)}`
-    ]],
+    head: tableHead,
+    body: tableBody,
+    foot: tableFoot,
     headStyles: { fillColor: ink, textColor: 255, fontStyle: 'bold', fontSize: 8 },
     footStyles: { fillColor: [240, 237, 228], textColor: ink, fontStyle: 'bold' },
     bodyStyles: { fontSize: 9, textColor: ink },
     alternateRowStyles: { fillColor: [250, 248, 243] },
-    columnStyles: {
-      0: { cellWidth: 28 },
-      2: { halign: 'right', cellWidth: 18 },
-      3: { halign: 'right', cellWidth: 26 },
-      4: { halign: 'right', cellWidth: 26 },
-    },
+    columnStyles: billingType === 'flat'
+      ? {
+          0: { cellWidth: 28 },
+          2: { halign: 'right', cellWidth: 32 },
+        }
+      : {
+          0: { cellWidth: 28 },
+          2: { halign: 'right', cellWidth: 18 },
+          3: { halign: 'right', cellWidth: 26 },
+          4: { halign: 'right', cellWidth: 26 },
+        },
     margin: { left: 14, right: 14 },
   })
 
