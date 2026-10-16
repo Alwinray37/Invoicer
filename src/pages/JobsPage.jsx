@@ -65,7 +65,15 @@ export default function JobsPage() {
       hourly_rate: parseFloat(form.hourly_rate) || 0,
       user_id: user.id
     })
-    if (!error) { setShowModal(false); setForm(emptyForm); fetchJobs() }
+
+    if (error) {
+      alert('Error creating job: ' + error.message)
+      return
+    }
+
+    setShowModal(false)
+    setForm(emptyForm)
+    fetchJobs()
   }
 
   return (
